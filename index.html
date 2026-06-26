@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Análise de Financiamento — Descubra cobranças abusivas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: linear-gradient(145deg, #1c4966 0%, #112d42 55%, #0d1e2c 100%);
+    font-family: 'Outfit', sans-serif;
+    color: #f0f4f8;
+  }
+  ::placeholder { color: #3d5e75 !important; }
+  select option { background: #0f2a3d; color: #f0f4f8; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+  .sidebar { display: flex; flex-direction: column; }
+  .mob-bar { display: none; }
+  @media (max-width: 740px) {
+    .sidebar { display: none !important; }
+    .mob-bar { display: block !important; }
+    .card-root { flex-direction: column !important; border-radius: 20px !important; }
+    .form-col { padding: 28px 22px 36px !important; }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* estados de interação (antes feitos por style-focus/style-hover do framework) */
+  .fld:focus { border-color: #2e7bbf !important; background: rgba(46,123,191,0.09) !important; outline: none; }
+  .back-btn:hover { background: rgba(255,255,255,0.09) !important; }
+  .atraso-btn:hover { border-color: rgba(46,123,191,0.6) !important; background: rgba(46,123,191,0.07) !important; }
+  .wa-cta:hover { background: #1fb557 !important; transform: translateY(-2px); box-shadow: 0 12px 36px rgba(37,211,102,0.38) !important; }
+  .recalc-btn:hover { color: #8aafc8 !important; }
+</style>
+</head>
+<body>
+
+<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px;">
+  <div class="card-root" style="width: 100%; max-width: 880px; display: flex; flex-direction: row; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 24px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.5);">
+
+    <!-- SIDEBAR (preenchida via JS) -->
+    <div class="sidebar" id="sidebar" style="width: 256px; min-width: 256px; background: rgba(0,0,0,0.22); border-right: 1px solid rgba(255,255,255,0.07); padding: 40px 26px;"></div>
+
+    <!-- FORM AREA -->
+    <div class="form-col" style="flex: 1; padding: 50px 44px; display: flex; flex-direction: column; justify-content: center; min-height: 540px;">
+      <div class="mob-bar" id="mobbar" style="margin-bottom: 30px;"></div>
+      <div id="stepArea"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Credenciais do Supabase (config.js está no .gitignore; modelo em config.example.js) -->
+<script src="./config.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var byId = function (id) { return document.getElementById(id); };
+  var sidebar = byId('sidebar');
+  var mobbar = byId('mobbar');
+  var stepArea = byId('stepArea');
+
+  var state = {
+    step: 0,
+    nome: '',
+    whatsapp: '',
+    banco: '',
+    parcelas: '',
+    valorParcela: '',
+    emAtraso: null,
+    leadStatus: 'idle' // 'idle' | 'saving' | 'ok' | 'error'
+  };
+
+  var banks = [
+    { name: 'BV Financeira', pct: 0.50 },
+    { name: 'PAN', pct: 0.50 },
+    { name: 'Santander', pct: 0.50 },
+    { name: 'Itaú', pct: 0.50 },
+    { name: 'Bradesco', pct: 0.50 },
+    { name: 'Honda', pct: 0.40 },
+    { name: 'Yamaha', pct: 0.40 },
+    { name: 'Omni', pct: 0.40 },
+    { name: 'Digimais', pct: 0.40 },
+    { name: 'RCI / Renault', pct: 0.40 },
+    { name: 'Chevrolet / GM', pct: 0.40 },
+    { name: 'Toyota', pct: 0.40 },
+    { name: 'Volkswagen', pct: 0.40 },
+    { name: 'Porto Seguro', pct: 0.40 },
+    { name: 'C6 Bank', pct: 0.30 },
+    { name: 'Creditas', pct: 0.25 },
+    { name: 'Daycoval', pct: 0.25 },
+    { name: 'Sicredi', pct: 0.25 },
+    { name: 'Sicoob', pct: 0.25 }
+  ];
+
+  var sideSteps = [
+    { label: 'Seu nome', desc: 'Como devemos te chamar' },
+    { label: 'WhatsApp', desc: 'Para contato do especialista' },
+    { label: 'Seu banco', desc: 'Instituição financeira' },
+    { label: 'Financiamento', desc: 'Parcelas e valores' },
+    { label: 'Situação', desc: 'Status do contrato' }
+  ];
+
+  // ---------- helpers ----------
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  var UNITLESS = { fontWeight: 1, lineHeight: 1, flex: 1, flexShrink: 1, flexGrow: 1, opacity: 1, zIndex: 1, order: 1 };
+  function css(obj) {
+    var out = [];
+    for (var k in obj) {
+      if (!obj.hasOwnProperty(k)) continue;
+      var v = obj[k];
+      if (v == null) continue;
+      var prop = k.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); });
+      if (typeof v === 'number' && !UNITLESS[k]) v = v + 'px';
+      out.push(prop + ':' + v);
+    }
+    return out.join(';');
+  }
+
+  function maskPhone(v) {
+    var d = v.replace(/\D/g, '').slice(0, 11);
+    if (!d.length) return '';
+    if (d.length <= 2) return '(' + d;
+    if (d.length <= 7) return '(' + d.slice(0, 2) + ') ' + d.slice(2);
+    return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+  }
+
+  function parseValor(v) {
+    var s = (v || '').trim();
+    if (!s) return 0;
+    if (s.indexOf(',') !== -1) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+    return parseFloat(s.replace(/[^\d.]/g, '')) || 0;
+  }
+
+  function fmt(v) {
+    return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function canAdvance() {
+    var v = [
+      state.nome.trim().length >= 2,
+      state.whatsapp.replace(/\D/g, '').length >= 10,
+      state.banco !== '',
+      (parseInt(state.parcelas, 10) || 0) >= 1 && parseValor(state.valorParcela) > 0,
+      state.emAtraso !== null
+    ];
+    var r = v[state.step];
+    return r == null ? false : r;
+  }
+
+  // ---------- style strings ----------
+  var inputCss = "width:100%;padding:16px 18px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.12);border-radius:12px;font-size:16px;color:#f0f4f8;font-family:Outfit,sans-serif;";
+  var monoInputCss = "width:100%;padding:15px 18px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.12);border-radius:12px;font-size:18px;color:#f0f4f8;font-family:'JetBrains Mono',monospace;font-weight:500;";
+  var selectCss = "width:100%;padding:16px 44px 16px 18px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.12);border-radius:12px;font-size:16px;color:#f0f4f8;font-family:Outfit,sans-serif;appearance:none;-webkit-appearance:none;cursor:pointer;";
+  var labelCss = "display:block;font-size:11px;font-weight:600;color:#6a8fa8;margin-bottom:8px;letter-spacing:0.08em;text-transform:uppercase;";
+  var backBtnCss = "padding:16px 20px;background:rgba(255,255,255,0.05);border:1.5px solid rgba(255,255,255,0.1);border-radius:12px;font-size:15px;font-weight:500;color:#8aafc8;cursor:pointer;font-family:Outfit,sans-serif;transition:all 0.2s ease;";
+
+  function nextBtnCss(can) {
+    return css({
+      flex: 1, padding: '17px', borderRadius: '12px', border: 'none',
+      background: can ? 'linear-gradient(135deg, #2e7bbf, #3d9bd8)' : 'rgba(46,123,191,0.18)',
+      color: can ? '#fff' : 'rgba(255,255,255,0.32)',
+      fontSize: '16px', fontWeight: 700, letterSpacing: '0.01em',
+      cursor: can ? 'pointer' : 'not-allowed',
+      fontFamily: 'Outfit, sans-serif',
+      boxShadow: can ? '0 12px 30px -8px rgba(46,123,191,0.6)' : 'none',
+      transition: 'all 0.2s ease'
+    });
+  }
+
+  function atrasoCss(sel) {
+    return css({
+      width: '100%', padding: '18px 20px',
+      background: sel ? 'rgba(46,123,191,0.11)' : 'rgba(255,255,255,0.04)',
+      border: sel ? '1.5px solid #2e7bbf' : '1.5px solid rgba(255,255,255,0.11)',
+      borderRadius: '12px', cursor: 'pointer', fontFamily: 'Outfit,sans-serif', transition: 'all 0.2s ease'
+    });
+  }
+
+  function dotCss(sel) {
+    return css({
+      width: 20, height: 20, borderRadius: '50%',
+      border: sel ? '2px solid #2e7bbf' : '2px solid rgba(255,255,255,0.18)',
+      background: sel ? '#2e7bbf' : 'transparent',
+      flexShrink: 0, transition: 'all 0.2s ease'
+    });
+  }
+
+  // ---------- sidebar styles ----------
+  function circleStyle(i) {
+    var base = { width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 };
+    if (state.step > i) { base.background = '#27a85f'; return base; }
+    if (state.step === i) { base.background = '#2e7bbf'; base.boxShadow = '0 0 0 4px rgba(46,123,191,0.22)'; return base; }
+    base.background = 'transparent'; base.border = '2px solid rgba(255,255,255,0.13)'; return base;
+  }
+  function labelStyle(i) {
+    return { fontSize: 14, fontWeight: state.step >= i ? 600 : 400, color: state.step >= i ? '#f0f4f8' : '#3d5e75', lineHeight: 1.35 };
+  }
+  function numStyle(i) {
+    return { fontSize: 13, fontWeight: 600, color: state.step >= i ? '#fff' : '#3d5e75' };
+  }
+
+  var CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+  function renderSidebar() {
+    var h = ''
+      + '<div style="margin-bottom: 38px;">'
+      +   '<div style="font-size: 10px; font-weight: 600; color: #2e7bbf; letter-spacing: 0.22em; text-transform: uppercase; margin-bottom: 10px;">Análise Gratuita</div>'
+      +   '<div style="font-size: 16px; font-weight: 700; color: #f0f4f8; line-height: 1.45;">Descubra o quanto seu banco cobra a mais</div>'
+      + '</div>'
+      + '<div style="font-size: 10px; font-weight: 600; color: #4a6880; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 20px;">PROGRESSO</div>';
+
+    for (var i = 0; i < sideSteps.length; i++) {
+      var last = i === sideSteps.length - 1;
+      var inner = state.step > i ? CHECK_SVG : '<span style="' + css(numStyle(i)) + '">' + (i + 1) + '</span>';
+      h += ''
+        + '<div style="display: flex; gap: 14px;">'
+        +   '<div style="display: flex; flex-direction: column; align-items: center; flex-shrink: 0;">'
+        +     '<div style="' + css(circleStyle(i)) + '">' + inner + '</div>'
+        +     (last ? '' : '<div style="width: 2px; flex: 1; min-height: 22px; background: rgba(255,255,255,0.07); margin: 5px 0;"></div>')
+        +   '</div>'
+        +   '<div style="padding-top: 7px;' + (last ? '' : ' padding-bottom: 20px;') + '">'
+        +     '<div style="' + css(labelStyle(i)) + '">' + sideSteps[i].label + '</div>'
+        +     '<div style="font-size: 11px; color: #3d5e75; margin-top: 3px; line-height: 1.4;">' + sideSteps[i].desc + '</div>'
+        +   '</div>'
+        + '</div>';
+    }
+    sidebar.innerHTML = h;
+  }
+
+  function renderMobBar() {
+    var stepLabels = ['Seu nome', 'WhatsApp', 'Seu banco', 'Financiamento', 'Situação', 'Resultado'];
+    var progressNum = state.step >= 5 ? 100 : state.step * 20;
+    mobbar.innerHTML = ''
+      + '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">'
+      +   '<div style="font-size: 13px; font-weight: 600; color: #8aafc8;">' + (stepLabels[state.step] || '') + '</div>'
+      +   '<div style="font-size: 12px; color: #4a6880;">' + Math.min(state.step + 1, 5) + ' de 5</div>'
+      + '</div>'
+      + '<div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;">'
+      +   '<div style="height: 100%; width: ' + progressNum + '%; background: linear-gradient(90deg, #2e7bbf, #3d9bd8); border-radius: 4px; transition: width 0.45s ease;"></div>'
+      + '</div>';
+  }
+
+  // ---------- step renderers ----------
+  function head(passo, titulo, sub, subMargin) {
+    return ''
+      + '<div style="font-size: 10px; font-weight: 600; color: #2e7bbf; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 14px;">' + passo + '</div>'
+      + '<h2 style="font-size: 28px; font-weight: 700; color: #f0f4f8; line-height: 1.2; margin-bottom: 8px;">' + titulo + '</h2>'
+      + '<p style="font-size: 15px; color: #8aafc8; margin-bottom: ' + (subMargin || 34) + 'px;">' + sub + '</p>';
+  }
+
+  function navRow(nextLabel) {
+    return ''
+      + '<div style="margin-top: 28px; display: flex; gap: 12px;">'
+      +   '<button class="js-back back-btn" style="' + backBtnCss + '">← Voltar</button>'
+      +   '<button class="js-next" style="' + nextBtnCss(canAdvance()) + '">' + nextLabel + '</button>'
+      + '</div>';
+  }
+
+  function stepNome() {
+    return ''
+      + '<div style="animation: fadeUp 0.35s ease-out;">'
+      +   head('Passo 1 de 5', 'Qual é o seu nome?', 'Vamos personalizar a sua análise')
+      +   '<input class="fld" id="f-nome" type="text" placeholder="Ex: João Silva" value="' + esc(state.nome) + '" autocomplete="given-name" style="' + inputCss + '">'
+      +   '<div style="margin-top: 28px;">'
+      +     '<button class="js-next" style="' + nextBtnCss(canAdvance()) + '">Continuar →</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function stepWhats() {
+    return ''
+      + '<div style="animation: fadeUp 0.35s ease-out;">'
+      +   head('Passo 2 de 5', 'Seu WhatsApp', 'Um especialista vai te orientar gratuitamente')
+      +   '<input class="fld" id="f-whats" type="tel" placeholder="(11) 99999-9999" value="' + esc(state.whatsapp) + '" autocomplete="tel" style="' + inputCss + '">'
+      +   navRow('Continuar →')
+      + '</div>';
+  }
+
+  function stepBanco() {
+    var opts = '<option value="">Selecione seu banco...</option>';
+    for (var i = 0; i < banks.length; i++) {
+      var n = banks[i].name;
+      opts += '<option value="' + esc(n) + '"' + (state.banco === n ? ' selected' : '') + '>' + esc(n) + '</option>';
+    }
+    return ''
+      + '<div style="animation: fadeUp 0.35s ease-out;">'
+      +   head('Passo 3 de 5', 'Qual é o seu banco?', 'Selecione a instituição do financiamento')
+      +   '<div style="position: relative;">'
+      +     '<select class="fld" id="f-banco" style="' + selectCss + '">' + opts + '</select>'
+      +     '<div style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #8aafc8;">'
+      +       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>'
+      +     '</div>'
+      +   '</div>'
+      +   navRow('Continuar →')
+      + '</div>';
+  }
+
+  function stepFin() {
+    return ''
+      + '<div style="animation: fadeUp 0.35s ease-out;">'
+      +   head('Passo 4 de 5', 'Dados do financiamento', 'Vamos calcular o total do seu contrato', 30)
+      +   '<div style="display: flex; flex-direction: column; gap: 18px;">'
+      +     '<div>'
+      +       '<label style="' + labelCss + '">Quantidade total de parcelas</label>'
+      +       '<input class="fld" id="f-parcelas" type="number" placeholder="Ex: 48" value="' + esc(state.parcelas) + '" min="1" style="' + monoInputCss + '">'
+      +     '</div>'
+      +     '<div>'
+      +       '<label style="' + labelCss + '">Valor de cada parcela (R$)</label>'
+      +       '<input class="fld" id="f-valor" type="text" inputmode="decimal" placeholder="Ex: 850,00" value="' + esc(state.valorParcela) + '" style="' + monoInputCss + '">'
+      +     '</div>'
+      +   '</div>'
+      +   navRow('Continuar →')
+      + '</div>';
+  }
+
+  function atrasoOption(id, dotId, sel, titulo, sub) {
+    return ''
+      + '<button class="atraso-btn" id="' + id + '" style="' + atrasoCss(sel) + '">'
+      +   '<div style="display: flex; align-items: center; gap: 14px;">'
+      +     '<div id="' + dotId + '" style="' + dotCss(sel) + '"></div>'
+      +     '<div style="text-align: left;">'
+      +       '<div style="font-size: 16px; font-weight: 600; color: #f0f4f8;">' + titulo + '</div>'
+      +       '<div style="font-size: 13px; color: #6a8fa8; margin-top: 3px;">' + sub + '</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</button>';
+  }
+
+  function stepAtraso() {
+    return ''
+      + '<div style="animation: fadeUp 0.35s ease-out;">'
+      +   head('Passo 5 de 5', 'Situação do contrato', 'Seu financiamento está em atraso?', 28)
+      +   '<div style="display: flex; flex-direction: column; gap: 12px;">'
+      +     atrasoOption('atraso-sim', 'dot-sim', state.emAtraso === true, 'Sim, estou em atraso', 'Há parcelas vencidas')
+      +     atrasoOption('atraso-nao', 'dot-nao', state.emAtraso === false, 'Não, estou em dia', 'Pagamentos em dia')
+      +   '</div>'
+      +   navRow('Ver análise →')
+      + '</div>';
+  }
+
+  function stepResult() {
+    var valorClean = parseValor(state.valorParcela);
+    var totalParcelas = parseInt(state.parcelas, 10) || 0;
+    var bankData = banks.filter(function (b) { return b.name === state.banco; })[0];
+    var pct = bankData ? bankData.pct : 0;
+    var abusividade = valorClean * pct * totalParcelas;
+    var totalPago = valorClean * totalParcelas;
+    var waText = 'Olá! Acabei de fazer uma análise do meu financiamento.\nBanco: ' + state.banco
+      + '\nParcelas: ' + totalParcelas + 'x de ' + fmt(valorClean)
+      + '\nGostaria de saber mais sobre a redução dos juros abusivos.';
+    var waLink = 'https://wa.me/5511989903101?text=' + encodeURIComponent(waText);
+
+    return ''
+      + '<div style="animation: fadeUp 0.4s ease-out;">'
+      +   '<div style="font-size: 10px; font-weight: 600; color: #f0a030; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 16px;">Análise Concluída</div>'
+      +   '<p style="font-size: 15px; color: #8aafc8; margin-bottom: 4px;">Em <strong style="color: #f0f4f8;">' + esc(state.parcelas) + ' parcelas</strong> com <strong style="color: #f0f4f8;">' + esc(state.banco) + '</strong>,</p>'
+      +   '<p style="font-size: 15px; color: #8aafc8; margin-bottom: 24px;">você pode estar pagando a mais:</p>'
+      +   '<div style="background: rgba(240,160,48,0.08); border: 1px solid rgba(240,160,48,0.22); border-radius: 16px; padding: 28px 24px; margin-bottom: 20px; text-align: center;">'
+      +     '<div style="font-size: 11px; font-weight: 600; color: #f0a030; letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 10px;">Estimativa de cobranças abusivas</div>'
+      +     '<div style="font-size: 42px; font-weight: 700; color: #f0a030; font-family: \'JetBrains Mono\',monospace; letter-spacing: -0.01em; line-height: 1;">' + fmt(abusividade) + '</div>'
+      +     '<div style="font-size: 13px; color: rgba(240,160,48,0.6); margin-top: 8px;">' + Math.round(pct * 100) + '% do valor total das parcelas</div>'
+      +   '</div>'
+      +   '<div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 18px 20px; margin-bottom: 24px;">'
+      +     '<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">'
+      +       '<span style="font-size: 14px; color: #8aafc8;">Total pago no contrato</span>'
+      +       '<span style="font-size: 14px; font-weight: 600; color: #f0f4f8; font-family: \'JetBrains Mono\',monospace;">' + fmt(totalPago) + '</span>'
+      +     '</div>'
+      +     '<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0;">'
+      +       '<span style="font-size: 14px; color: #8aafc8;">Estimativa de juros abusivos</span>'
+      +       '<span style="font-size: 14px; font-weight: 600; color: #f0a030; font-family: \'JetBrains Mono\',monospace;">' + fmt(abusividade) + '</span>'
+      +     '</div>'
+      +   '</div>'
+      +   '<a class="wa-cta" href="' + waLink + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 18px; background: #25d366; border-radius: 12px; font-size: 16px; font-weight: 700; color: white; text-decoration: none; box-shadow: 0 8px 28px rgba(37,211,102,0.28); transition: all 0.2s ease;">'
+      +     '<svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"></path></svg>'
+      +     'Falar com especialista no WhatsApp'
+      +   '</a>'
+      +   '<div id="lead-status"></div>'
+      +   '<div style="text-align: center; margin-top: 14px;">'
+      +     '<button id="btn-recalc" class="recalc-btn" style="background: none; border: none; color: #4a6880; font-size: 13px; cursor: pointer; font-family: Outfit,sans-serif;">Recalcular</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  // ---------- lead status (área dinâmica no resultado) ----------
+  function renderLeadStatus() {
+    var el = byId('lead-status');
+    if (!el) return;
+    if (state.step !== 5 || state.leadStatus === 'idle' || state.leadStatus === 'ok') {
+      el.innerHTML = '';
+      return;
+    }
+    if (state.leadStatus === 'saving') {
+      el.innerHTML = '<div style="text-align: center; margin-top: 14px; font-size: 12px; color: #4a6880;">Registrando seus dados...</div>';
+    } else if (state.leadStatus === 'error') {
+      el.innerHTML = '<div style="text-align: center; margin-top: 14px; font-size: 12px; color: #d98a6a;">Não foi possível registrar automaticamente. '
+        + '<button id="btn-retry" style="background: none; border: none; color: #f0a030; font-size: 12px; font-weight: 600; cursor: pointer; font-family: Outfit,sans-serif; text-decoration: underline;">Tentar de novo</button></div>';
+      var rb = byId('btn-retry');
+      if (rb) rb.addEventListener('click', submitLead);
+    }
+  }
+
+  // ---------- Supabase (REST) ----------
+  function submitLead() {
+    if (state.leadStatus === 'saving' || state.leadStatus === 'ok') return;
+
+    var url = window.SUPABASE_URL;
+    var key = window.SUPABASE_ANON_KEY;
+    if (!url || !key) {
+      console.error('Supabase não configurado: crie o config.js a partir do config.example.js.');
+      state.leadStatus = 'error';
+      renderLeadStatus();
+      return;
+    }
+
+    var valorClean = parseValor(state.valorParcela);
+    var totalParcelas = parseInt(state.parcelas, 10) || 0;
+    var bankData = banks.filter(function (b) { return b.name === state.banco; })[0];
+    var pct = bankData ? bankData.pct : 0;
+    var estimativa = valorClean * pct * totalParcelas;
+
+    state.leadStatus = 'saving';
+    renderLeadStatus();
+
+    fetch(url + '/rest/v1/leads_financiamento', {
+      method: 'POST',
+      headers: {
+        'apikey': key,
+        'Authorization': 'Bearer ' + key,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({
+        nome: state.nome.trim(),
+        telefone: state.whatsapp.trim(),
+        banco: state.banco || null,
+        parcelas: totalParcelas || null,
+        valor_parcela: valorClean || null,
+        em_atraso: state.emAtraso,
+        estimativa_abusiva: Number(estimativa.toFixed(2))
+      })
+    }).then(function (res) {
+      if (!res.ok) return res.text().then(function (t) { throw new Error('HTTP ' + res.status + ' ' + t); });
+      state.leadStatus = 'ok';
+      renderLeadStatus();
+    }).catch(function (err) {
+      console.error('Erro ao salvar lead:', err);
+      state.leadStatus = 'error';
+      renderLeadStatus();
+    });
+  }
+
+  // ---------- navegação / eventos ----------
+  function refreshNext() {
+    var can = canAdvance();
+    var btns = stepArea.querySelectorAll('.js-next');
+    for (var i = 0; i < btns.length; i++) btns[i].setAttribute('style', nextBtnCss(can));
+  }
+
+  function onEnter(e) {
+    if (e.key === 'Enter' && canAdvance() && state.step < 5) goNext();
+  }
+
+  function goNext() {
+    if (canAdvance() && state.step < 5) {
+      if (state.step === 4) submitLead();
+      state.step += 1;
+      rerenderAll();
+    }
+  }
+
+  function goPrev() {
+    if (state.step > 0 && state.step < 5) {
+      state.step -= 1;
+      rerenderAll();
+    }
+  }
+
+  function restart() {
+    state.step = 0; state.nome = ''; state.whatsapp = ''; state.banco = '';
+    state.parcelas = ''; state.valorParcela = ''; state.emAtraso = null; state.leadStatus = 'idle';
+    rerenderAll();
+  }
+
+  function selectAtraso(val) {
+    state.emAtraso = val;
+    var sim = byId('atraso-sim'), nao = byId('atraso-nao');
+    if (sim) sim.setAttribute('style', atrasoCss(val === true));
+    if (nao) nao.setAttribute('style', atrasoCss(val === false));
+    var ds = byId('dot-sim'), dn = byId('dot-nao');
+    if (ds) ds.setAttribute('style', dotCss(val === true));
+    if (dn) dn.setAttribute('style', dotCss(val === false));
+    refreshNext();
+  }
+
+  function attachStepListeners() {
+    var nexts = stepArea.querySelectorAll('.js-next');
+    for (var i = 0; i < nexts.length; i++) nexts[i].addEventListener('click', goNext);
+    var backs = stepArea.querySelectorAll('.js-back');
+    for (var j = 0; j < backs.length; j++) backs[j].addEventListener('click', goPrev);
+
+    var step = state.step, el;
+    if (step === 0) {
+      el = byId('f-nome');
+      el.addEventListener('input', function (e) { state.nome = e.target.value; refreshNext(); });
+      el.addEventListener('keydown', onEnter);
+    } else if (step === 1) {
+      el = byId('f-whats');
+      el.addEventListener('input', function (e) { var m = maskPhone(e.target.value); state.whatsapp = m; e.target.value = m; refreshNext(); });
+      el.addEventListener('keydown', onEnter);
+    } else if (step === 2) {
+      byId('f-banco').addEventListener('change', function (e) { state.banco = e.target.value; refreshNext(); });
+    } else if (step === 3) {
+      var p = byId('f-parcelas'), v = byId('f-valor');
+      p.addEventListener('input', function (e) { state.parcelas = e.target.value; refreshNext(); });
+      p.addEventListener('keydown', onEnter);
+      v.addEventListener('input', function (e) { state.valorParcela = e.target.value; refreshNext(); });
+      v.addEventListener('keydown', onEnter);
+    } else if (step === 4) {
+      byId('atraso-sim').addEventListener('click', function () { selectAtraso(true); });
+      byId('atraso-nao').addEventListener('click', function () { selectAtraso(false); });
+    } else if (step === 5) {
+      var r = byId('btn-recalc');
+      if (r) r.addEventListener('click', restart);
+      renderLeadStatus();
+    }
+  }
+
+  function renderStep() {
+    var renderers = [stepNome, stepWhats, stepBanco, stepFin, stepAtraso, stepResult];
+    stepArea.innerHTML = renderers[state.step] ? renderers[state.step]() : '';
+    attachStepListeners();
+    setTimeout(function () {
+      var f = stepArea.querySelector('input, select');
+      if (f) f.focus();
+    }, 380);
+  }
+
+  function rerenderAll() {
+    renderSidebar();
+    renderMobBar();
+    renderStep();
+  }
+
+  rerenderAll();
+})();
+</script>
+
+</body>
+</html>

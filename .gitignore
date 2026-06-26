@@ -1,0 +1,18 @@
+# Credenciais locais — NÃO versionar
+config.js
+
+# Sistema operacional
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Editores / IDEs
+.vscode/
+.idea/
+*.swp
+
+# Claude Code (config local)
+.claude/settings.local.json
+
+# Logs
+*.log
