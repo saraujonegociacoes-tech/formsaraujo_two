@@ -1,6 +1,9 @@
 # Credenciais locais — NÃO versionar
 config.js
 
+# Schemas do Supabase (SQL) — mantidos apenas localmente
+supabase/
+
 # Sistema operacional
 Thumbs.db
 .DS_Store
