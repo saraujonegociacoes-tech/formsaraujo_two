@@ -437,6 +437,11 @@
 
     fetch(url + '/rest/v1/leads_financiamento', {
       method: 'POST',
+      // keepalive: conclui o envio mesmo se a página for descartada/segundo plano
+      // (ex.: cliente toca no botão do WhatsApp logo após ver o resultado, no
+      // navegador interno do Instagram/Facebook). Sem isso, a requisição em
+      // andamento era cancelada e o lead não chegava à tabela.
+      keepalive: true,
       headers: {
         'apikey': key,
         'Authorization': 'Bearer ' + key,
