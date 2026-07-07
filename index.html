@@ -91,6 +91,7 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
     whatsapp: '',
     banco: '',
     parcelas: '',
+    parcelasPagas: '',
     valorParcela: '',
     emAtraso: null,
     leadStatus: 'idle' // 'idle' | 'saving' | 'ok' | 'error'
@@ -167,11 +168,13 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
   }
 
   function canAdvance() {
+    var parcelas = parseInt(state.parcelas, 10) || 0;
+    var parcelasPagas = parseInt(state.parcelasPagas, 10);
     var v = [
       state.nome.trim().length >= 2,
       state.whatsapp.replace(/\D/g, '').length >= 10,
       state.banco !== '',
-      (parseInt(state.parcelas, 10) || 0) >= 1 && parseValor(state.valorParcela) > 0,
+      parcelas >= 1 && parseValor(state.valorParcela) > 0 && parcelasPagas >= 0 && parcelasPagas <= parcelas,
       state.emAtraso !== null
     ];
     var r = v[state.step];
@@ -336,6 +339,10 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
       +       '<input class="fld" id="f-parcelas" type="number" placeholder="Ex: 48" value="' + esc(state.parcelas) + '" min="1" style="' + monoInputCss + '">'
       +     '</div>'
       +     '<div>'
+      +       '<label style="' + labelCss + '">Quantidade de parcelas já pagas</label>'
+      +       '<input class="fld" id="f-parcelas-pagas" type="number" placeholder="Ex: 12" value="' + esc(state.parcelasPagas) + '" min="0" style="' + monoInputCss + '">'
+      +     '</div>'
+      +     '<div>'
       +       '<label style="' + labelCss + '">Valor de cada parcela (R$)</label>'
       +       '<input class="fld" id="f-valor" type="text" inputmode="decimal" placeholder="Ex: 850,00" value="' + esc(state.valorParcela) + '" style="' + monoInputCss + '">'
       +     '</div>'
@@ -372,12 +379,14 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
   function stepResult() {
     var valorClean = parseValor(state.valorParcela);
     var totalParcelas = parseInt(state.parcelas, 10) || 0;
+    var parcelasPagas = parseInt(state.parcelasPagas, 10) || 0;
     var bankData = banks.filter(function (b) { return b.name === state.banco; })[0];
     var pct = bankData ? bankData.pct : 0;
     var abusividade = valorClean * pct * totalParcelas;
     var totalPago = valorClean * totalParcelas;
     var waText = 'Olá! Acabei de fazer uma análise do meu financiamento.\nBanco: ' + state.banco
       + '\nParcelas: ' + totalParcelas + 'x de ' + fmt(valorClean)
+      + '\nParcelas pagas: ' + parcelasPagas
       + '\nGostaria de saber mais sobre a redução dos juros abusivos.';
     var waLink = 'https://wa.me/5511989903101?text=' + encodeURIComponent(waText);
 
@@ -445,6 +454,7 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
 
     var valorClean = parseValor(state.valorParcela);
     var totalParcelas = parseInt(state.parcelas, 10) || 0;
+    var parcelasPagas = parseInt(state.parcelasPagas, 10);
     var bankData = banks.filter(function (b) { return b.name === state.banco; })[0];
     var pct = bankData ? bankData.pct : 0;
     var estimativa = valorClean * pct * totalParcelas;
@@ -470,6 +480,7 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
         telefone: state.whatsapp.trim(),
         banco: state.banco || null,
         parcelas: totalParcelas || null,
+        parcelas_pagas: isNaN(parcelasPagas) ? null : parcelasPagas,
         valor_parcela: valorClean || null,
         em_atraso: state.emAtraso,
         estimativa_abusiva: Number(estimativa.toFixed(2))
@@ -515,7 +526,7 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
 
   function restart() {
     state.step = 0; state.nome = ''; state.whatsapp = ''; state.banco = '';
-    state.parcelas = ''; state.valorParcela = ''; state.emAtraso = null; state.leadStatus = 'idle';
+    state.parcelas = ''; state.parcelasPagas = ''; state.valorParcela = ''; state.emAtraso = null; state.leadStatus = 'idle';
     rerenderAll();
   }
 
@@ -548,9 +559,11 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
     } else if (step === 2) {
       byId('f-banco').addEventListener('change', function (e) { state.banco = e.target.value; refreshNext(); });
     } else if (step === 3) {
-      var p = byId('f-parcelas'), v = byId('f-valor');
+      var p = byId('f-parcelas'), pp = byId('f-parcelas-pagas'), v = byId('f-valor');
       p.addEventListener('input', function (e) { state.parcelas = e.target.value; refreshNext(); });
       p.addEventListener('keydown', onEnter);
+      pp.addEventListener('input', function (e) { state.parcelasPagas = e.target.value; refreshNext(); });
+      pp.addEventListener('keydown', onEnter);
       v.addEventListener('input', function (e) { state.valorParcela = e.target.value; refreshNext(); });
       v.addEventListener('keydown', onEnter);
     } else if (step === 4) {
