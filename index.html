@@ -89,6 +89,7 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
     step: 0,
     nome: '',
     whatsapp: '',
+    whatsappConfirm: '',
     banco: '',
     parcelas: '',
     parcelasPagas: '',
@@ -172,7 +173,7 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
     var parcelasPagas = parseInt(state.parcelasPagas, 10);
     var v = [
       state.nome.trim().length >= 2,
-      state.whatsapp.replace(/\D/g, '').length >= 10,
+      state.whatsapp.replace(/\D/g, '').length >= 10 && state.whatsapp === state.whatsappConfirm,
       state.banco !== '',
       parcelas >= 1 && parseValor(state.valorParcela) > 0 && parcelasPagas >= 0 && parcelasPagas <= parcelas,
       state.emAtraso !== null
@@ -301,11 +302,22 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
       + '</div>';
   }
 
+  function whatsMismatch() {
+    return state.whatsappConfirm.replace(/\D/g, '').length >= 2 && state.whatsapp !== state.whatsappConfirm;
+  }
+
   function stepWhats() {
+    var mismatch = whatsMismatch();
     return ''
       + '<div style="animation: fadeUp 0.35s ease-out;">'
       +   head('Passo 2 de 5', 'Seu WhatsApp', 'Um especialista vai te orientar gratuitamente')
+      +   '<label style="' + labelCss + '">Número do WhatsApp</label>'
       +   '<input class="fld" id="f-whats" type="tel" placeholder="(11) 99999-9999" value="' + esc(state.whatsapp) + '" autocomplete="tel" style="' + inputCss + '">'
+      +   '<div style="margin-top: 18px;">'
+      +     '<label style="' + labelCss + '">Confirme o número</label>'
+      +     '<input class="fld" id="f-whats-confirm" type="tel" placeholder="Digite o número novamente" value="' + esc(state.whatsappConfirm) + '" autocomplete="off" style="' + inputCss + (mismatch ? 'border-color:#d98a6a;' : '') + '">'
+      +   '</div>'
+      +   '<div id="whats-msg" style="min-height: 18px; margin-top: 10px; font-size: 13px; color: #d98a6a; font-weight: 500;">' + (mismatch ? '⚠ Os números não coincidem. Verifique e corrija.' : '') + '</div>'
       +   navRow('Continuar →')
       + '</div>';
   }
@@ -505,6 +517,15 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
     for (var i = 0; i < btns.length; i++) btns[i].setAttribute('style', nextBtnCss(can));
   }
 
+  function refreshWhatsMatch() {
+    var confirmEl = byId('f-whats-confirm');
+    var msgEl = byId('whats-msg');
+    if (!confirmEl || !msgEl) return;
+    var mismatch = whatsMismatch();
+    confirmEl.style.borderColor = mismatch ? '#d98a6a' : 'rgba(255,255,255,0.12)';
+    msgEl.textContent = mismatch ? '⚠ Os números não coincidem. Verifique e corrija.' : '';
+  }
+
   function onEnter(e) {
     if (e.key === 'Enter' && canAdvance() && state.step < 5) goNext();
   }
@@ -525,7 +546,7 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
   }
 
   function restart() {
-    state.step = 0; state.nome = ''; state.whatsapp = ''; state.banco = '';
+    state.step = 0; state.nome = ''; state.whatsapp = ''; state.whatsappConfirm = ''; state.banco = '';
     state.parcelas = ''; state.parcelasPagas = ''; state.valorParcela = ''; state.emAtraso = null; state.leadStatus = 'idle';
     rerenderAll();
   }
@@ -554,8 +575,12 @@ src="https://www.facebook.com/tr?id=1169043948488779&ev=PageView&noscript=1"
       el.addEventListener('keydown', onEnter);
     } else if (step === 1) {
       el = byId('f-whats');
-      el.addEventListener('input', function (e) { var m = maskPhone(e.target.value); state.whatsapp = m; e.target.value = m; refreshNext(); });
+      el.addEventListener('input', function (e) { var m = maskPhone(e.target.value); state.whatsapp = m; e.target.value = m; refreshNext(); refreshWhatsMatch(); });
       el.addEventListener('keydown', onEnter);
+      var elc = byId('f-whats-confirm');
+      elc.addEventListener('input', function (e) { var m = maskPhone(e.target.value); state.whatsappConfirm = m; e.target.value = m; refreshNext(); refreshWhatsMatch(); });
+      elc.addEventListener('keydown', onEnter);
+      elc.addEventListener('paste', function (e) { e.preventDefault(); });
     } else if (step === 2) {
       byId('f-banco').addEventListener('change', function (e) { state.banco = e.target.value; refreshNext(); });
     } else if (step === 3) {
